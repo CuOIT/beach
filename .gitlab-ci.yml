@@ -1,0 +1,121 @@
+variables:
+  GIT_CLEAN_FLAGS: "-ffdx -e .env -e Library/ -e Temp/ -e .utmp/ -e .ci-tools/"
+  GIT_CLONE_PATH: "$CI_BUILDS_DIR/$CI_PROJECT_NAME-$CI_BUILD_LANE"
+  CI_BUILD_LANE: "1"
+  CI_RUNNER_TAG: "build-1"
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^ci-promote\//'
+      variables:
+        CI_PROMOTION_GATE: "true"
+    - if: '$CI_COMMIT_BRANCH =~ /^ci-promote\//'
+      variables:
+        CI_PROMOTION_GATE: "true"
+    - if: '($CI_BOT_ACTION == "rebuild" || $CI_BOT_ACTION == "debug_job" || $CI_BOT_ACTION == "promote_aab") && $CI_BUILD_LANE == "2"'
+      variables:
+        CI_BUILD_LANE: "2"
+        CI_RUNNER_TAG: "build-2"
+    - if: '$CI_COMMIT_MESSAGE =~ /^@b(A|B|d)?2([^A-Za-z0-9_]|$)/'
+      variables:
+        CI_BUILD_LANE: "2"
+        CI_RUNNER_TAG: "build-2"
+    - if: '$CI_BOT_ACTION == "rebuild" || $CI_BOT_ACTION == "debug_job" || $CI_BOT_ACTION == "promote_aab"'
+    - if: '$CI_COMMIT_MESSAGE =~ /^@b(A|B|d)?[0-9]*([^A-Za-z0-9_]|$)/'
+    - when: never
+
+stages:
+  - promotion_check
+  - notify_start
+  - package
+  - notify
+  - finalize
+
+promotion_gate:
+  stage: promotion_check
+  tags:
+    - $CI_RUNNER_TAG
+  variables:
+    GIT_STRATEGY: none
+  rules:
+    - if: '$CI_PROMOTION_GATE == "true"'
+    - when: never
+  script:
+    - powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host 'Promotion gate passed without Unity checkout or Android build.'"
+
+notify_build_queued:
+  stage: notify_start
+  tags:
+    - $CI_RUNNER_TAG
+  allow_failure: true
+  rules:
+    - if: '$CI_PROMOTION_GATE == "true"'
+      when: never
+    - when: on_success
+  script:
+    - powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CI_PROJECT_DIR/.unity-ci/notify-telegram.ps1" -Event Queued -BestEffort
+
+build_android:
+  stage: package
+  tags:
+    - $CI_RUNNER_TAG
+  timeout: 2 hours
+  needs:
+    - job: notify_build_queued
+      artifacts: false
+      optional: true
+  variables:
+    CI_CONTINUE_ON_BUILD_FAILURE: "true"
+  rules:
+    - if: '$CI_PROMOTION_GATE == "true"'
+      when: never
+    - when: on_success
+  script:
+    - powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CI_PROJECT_DIR/.unity-ci/build-android.ps1"
+    - powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CI_PROJECT_DIR/.unity-ci/upload-drive.ps1"
+  artifacts:
+    when: always
+    name: "${CI_PROJECT_NAME}-${CI_COMMIT_REF_NAME}"
+    paths:
+      - "*-report.md"
+      - "*-manifest.json"
+      - "build_android.log"
+      - "build_status.env"
+      - "drive_link.env"
+    reports:
+      dotenv: "drive_link.env"
+    expire_in: 1 week
+  after_script:
+    - powershell -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Name 'unity_burst_compiler','Unity','bee' -Force -ErrorAction SilentlyContinue; exit 0"
+
+notify_telegram:
+  stage: notify
+  tags:
+    - $CI_RUNNER_TAG
+  needs:
+    - job: build_android
+      artifacts: true
+      optional: true
+  rules:
+    - if: '$CI_PROMOTION_GATE == "true"'
+      when: never
+    - when: always
+  script:
+    - powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CI_PROJECT_DIR/.unity-ci/notify-telegram.ps1"
+
+verify_build:
+  stage: finalize
+  tags:
+    - $CI_RUNNER_TAG
+  needs:
+    - job: build_android
+      artifacts: true
+      optional: true
+    - job: notify_telegram
+      optional: true
+  rules:
+    - if: '$CI_PROMOTION_GATE == "true"'
+      when: never
+    - when: always
+  script:
+    - powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CI_PROJECT_DIR/.unity-ci/verify-build.ps1"
