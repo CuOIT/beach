@@ -8,7 +8,7 @@ using UnityEngine.InputSystem;
 namespace WaveLab
 {
     [ExecuteAlways]
-    public sealed class WaveLabController : MonoBehaviour
+    public sealed partial class WaveLabController : MonoBehaviour
     {
         [Header("Reference timing / one shared clock")]
         [Range(5,16)] public float period=9.4f;
@@ -61,6 +61,8 @@ namespace WaveLab
         bool runtimeReady;
         Body dragged;
         Vector2 lastPointer;
+        int activePointerId=int.MinValue;
+        bool touchPointer;
         public float Clock => clock;
         public float CycleProgress => Mathf.Repeat(clock/Mathf.Max(.1f,period),1f);
         public float Phase => SurfMath.RemapPhase(CycleProgress,approachTime,advanceTime,holdTime,recedeTime,restTime);
@@ -114,8 +116,9 @@ namespace WaveLab
         {
             if(!Application.isPlaying) { runtimeReady=false;ApplyGlobals();return; }
             if(!runtimeReady) InitializeRuntime();
-            HandlePointer();
-            if(!paused)
+            if(!IsSeeking)HandlePointer();
+            if(IsSeeking)AdvanceSeek(8,3);
+            else if(!paused)
             {
                 accumulator+=Mathf.Min(Time.unscaledDeltaTime,.10f)*playbackSpeed;
                 while(accumulator>=1f/60f) { Step(1f/60f);accumulator-=1f/60f; }
@@ -131,11 +134,45 @@ namespace WaveLab
                 if(Keyboard.current.spaceKey.wasPressedThisFrame) paused=!paused;
                 if(Keyboard.current.rKey.wasPressedThisFrame) ResetSimulation();
             }
-            if(Mouse.current==null||sceneCamera==null) return;
-            Vector2 screen=Mouse.current.position.ReadValue();
+            if(sceneCamera==null)return;
+            // Track the finger that began the drag; other fingers cannot take it over.
+            if(Touchscreen.current!=null)
+            {
+                foreach(var touch in Touchscreen.current.touches)
+                {
+                    int id=touch.touchId.ReadValue();
+                    if(touchPointer&&activePointerId==id)
+                    {
+                        UpdatePointer(touch.position.ReadValue(),false,!touch.press.isPressed,id);
+                        return;
+                    }
+                    if(dragged==null&&touch.press.wasPressedThisFrame)
+                    {
+                        UpdatePointer(touch.position.ReadValue(),true,false,id);
+                        if(dragged!=null){touchPointer=true;activePointerId=id;}
+                        return;
+                    }
+                }
+            }
+            if(touchPointer){dragged=null;touchPointer=false;activePointerId=int.MinValue;return;}
+            if(Mouse.current!=null)
+                UpdatePointer(Mouse.current.position.ReadValue(),Mouse.current.leftButton.wasPressedThisFrame,
+                    Mouse.current.leftButton.wasReleasedThisFrame,-1);
+#endif
+        }
+        void UpdatePointer(Vector2 screen,bool pressed,bool released,int pointerId)
+        {
             Vector2 p=sceneCamera.ScreenToWorldPoint(new Vector3(screen.x,screen.y,20));
-            bool overUI=WaveLabConfigPanel.BlocksPointer(screen)||(UnityEngine.EventSystems.EventSystem.current!=null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject());
-            if(Mouse.current.leftButton.wasPressedThisFrame&&!overUI)
+            bool overUI=WaveLabConfigPanel.BlocksPointer(screen);
+            // Raycast at the current position: Input System UI state can lag Update by a frame.
+            var events=UnityEngine.EventSystems.EventSystem.current;
+            if(events!=null&&pressed)
+            {
+                var hits=new List<UnityEngine.EventSystems.RaycastResult>();
+                events.RaycastAll(new UnityEngine.EventSystems.PointerEventData(events){position=screen,pointerId=pointerId},hits);
+                overUI|=hits.Count>0;
+            }
+            if(pressed&&!overUI)
             {
                 float best=100;
                 foreach(Body b in bodies)
@@ -149,27 +186,28 @@ namespace WaveLab
             {
                 dragged.position=p;dragged.velocity=(p-lastPointer)/Mathf.Max(Time.unscaledDeltaTime,.01f)*.15f;
                 dragged.transform.position=new Vector3(p.x,p.y,0);lastPointer=p;
-                if(Mouse.current.leftButton.wasReleasedThisFrame) dragged=null;
+                if(released){dragged=null;touchPointer=false;activePointerId=int.MinValue;}
             }
-#endif
         }
         public void ResetSimulation()
         {
-            clock=0;accumulator=0;dragged=null;
+            CancelSeek();
+            ResetState();
+            ApplyGlobals();
+        }
+        void ResetState()
+        {
+            clock=0;accumulator=0;dragged=null;touchPointer=false;activePointerId=int.MinValue;
             foreach(Body b in bodies)
             {
                 b.position=b.initial;b.velocity=Vector2.zero;b.rotation=b.initialRotation;b.spin=0;
                 if(b.transform) b.transform.SetPositionAndRotation(new Vector3(b.position.x,b.position.y,0),Quaternion.Euler(0,0,b.rotation));
             }
-            ApplyGlobals();
         }
         public void Seek(float seconds)
         {
-            ResetSimulation();
-            int steps=Mathf.FloorToInt(Mathf.Max(0,seconds)*60);
-            for(int i=0;i<steps;i++) Step(1f/60f);
-            float rest=seconds-steps/60f;if(rest>0) Step(rest);
-            ApplyGlobals();
+            BeginSeek(seconds);
+            AdvanceSeek(int.MaxValue,0);
         }
         public void Step(float dt)
         {
@@ -251,17 +289,23 @@ namespace WaveLab
                 rockExposure[i]=showObjectImmersion&&rockStates[i]?1-SurfMath.Smooth(.65f,.98f,rockStates[i].SubmergedFraction):1;
             Shader.SetGlobalFloatArray("_SurfRockExposure",rockExposure);
         }
+        void OnDestroy(){ReleaseGeneratedResources();}
+        void ReleaseGeneratedResources()
+        {
+            foreach(UnityEngine.Object resource in generatedResources)if(resource)
+            {
+#if UNITY_EDITOR
+                if(UnityEditor.AssetDatabase.Contains(resource))continue;
+#endif
+                if(Application.isPlaying)Destroy(resource);else DestroyImmediate(resource);
+            }
+            generatedResources.Clear();
+        }
         public void Rebuild()
         {
             if(generatedRoot) DestroyImmediate(generatedRoot.gameObject);
-            foreach(UnityEngine.Object resource in generatedResources) if(resource)
-            {
-#if UNITY_EDITOR
-                if(UnityEditor.AssetDatabase.Contains(resource)) continue;
-#endif
-                DestroyImmediate(resource);
-            }
-            generatedResources.Clear();bodies.Clear();layers.Clear();
+            ReleaseGeneratedResources();
+            bodies.Clear();layers.Clear();immersionObjects.Clear();
             generatedRoot=new GameObject("Wave layers and beach objects").transform;generatedRoot.SetParent(transform,false);
             if(!surfShader) surfShader=Shader.Find("WaveLab/Surf Layers");
             if(!objectShader) objectShader=Shader.Find("WaveLab/Beach Objects");
@@ -301,6 +345,11 @@ namespace WaveLab
                 float rotation=Rand(-18,18);render.transform.rotation=Quaternion.Euler(0,0,rotation);
                 bodies.Add(new Body{transform=render.transform,renderer=render,initial=new Vector2(x,y),position=new Vector2(x,y),initialRotation=rotation,rotation=rotation,radius=scale*.68f,buoyancy=Rand(.65f,1.2f),bobSeed=Rand(0,20)});
             }
+            var catalog=Resources.Load<WaveLabImmersionCatalog>(WaveLabImmersionCatalog.ResourcePath);
+            if(!catalog)throw new InvalidOperationException("Missing WaveLab immersion catalog. Run Wave Lab > Upgrade Object Immersion.");
+            foreach(var renderer in generatedRoot.GetComponentsInChildren<MeshRenderer>())
+                if(renderer.name.StartsWith("Rock ")||renderer.name.StartsWith("Collectible "))catalog.Configure(renderer);
+            RegisterImmersionObjects();
             ResetSimulation();
         }
         MeshRenderer Renderer(string name,Mesh mesh,Material material,int order,Vector2 pos,Vector2 scale)

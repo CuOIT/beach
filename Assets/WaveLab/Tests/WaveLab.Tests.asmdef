@@ -1,0 +1,9 @@
+{
+    "name": "WaveLab.Tests",
+    "references": ["WaveLab.Runtime", "UnityEngine.TestRunner", "UnityEditor.TestRunner", "Unity.InputSystem", "UnityEngine.UI"],
+    "includePlatforms": ["Editor"],
+    "overrideReferences": true,
+    "precompiledReferences": ["nunit.framework.dll"],
+    "autoReferenced": false,
+    "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}

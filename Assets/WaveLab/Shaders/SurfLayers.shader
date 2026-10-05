@@ -99,7 +99,8 @@ Shader "WaveLab/Surf Layers"
                     return float4(surfColor(col),alpha*_Visibility);
                 }
                 // A thin wet-sand memory remains outside the receding front.
-                float recent=ss(-_SurfReach-.25,-_SurfReach+.05,p.y+1.25);
+                // Only remember sand inside the maximum reach of this curved shore.
+                float recent=ss(0.,.05,p.y-(restShore(p.x)-_SurfReach));
                 float drying=(1.-water)*recent*ss(.51,.60,phase)*(1.-ss(.90,1.,phase));
                 return float4(surfColor(float3(.22,.42,.36)),drying*.23*_Visibility*_SurfAppearance.w);
             }

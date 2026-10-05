@@ -78,6 +78,7 @@ namespace WaveLab.EditorTools
                 if(renderer.name.StartsWith("Collectible ")||renderer.name.StartsWith("Rock "))
                 {targets.Add(renderer);meshes.Add(renderer.GetComponent<MeshFilter>().sharedMesh);}
             var silhouettes=FoamSilhouetteBaker.Bake(meshes);
+            SaveImmersionCatalog(below,above,foam,quad,silhouettes);
             foreach(var renderer in targets)
             {
                 var state=renderer.GetComponent<ShoreObjectState>();if(!state)state=renderer.gameObject.AddComponent<ShoreObjectState>();
@@ -89,6 +90,25 @@ namespace WaveLab.EditorTools
             EditorSceneManager.MarkSceneDirty(c.gameObject.scene);
             if(!string.IsNullOrEmpty(c.gameObject.scene.path))EditorSceneManager.SaveScene(c.gameObject.scene);
             AssetDatabase.SaveAssets();
+        }
+        static void SaveImmersionCatalog(Material below,Material above,Material foam,Mesh quad,
+            Dictionary<Mesh,FoamSilhouetteBaker.Slice> silhouettes)
+        {
+            const string directory="Assets/WaveLab/Resources/WaveLab";
+            Directory.CreateDirectory(directory);AssetDatabase.Refresh();
+            string path=directory+"/ImmersionCatalog.asset";
+            var catalog=AssetDatabase.LoadAssetAtPath<WaveLabImmersionCatalog>(path);
+            if(!catalog){catalog=ScriptableObject.CreateInstance<WaveLabImmersionCatalog>();AssetDatabase.CreateAsset(catalog,path);}
+            catalog.underwater=below;catalog.exposed=above;catalog.foam=foam;catalog.foamQuad=quad;
+            var slices=new List<WaveLabImmersionCatalog.Slice>();
+            foreach(var pair in silhouettes)
+            {
+                catalog.atlas=pair.Value.atlas;
+                slices.Add(new WaveLabImmersionCatalog.Slice{meshName=pair.Key.name,uv=pair.Value.uvRect,
+                    localRect=pair.Value.localRect,distanceRange=pair.Value.distanceRange});
+            }
+            slices.Sort((a,b)=>string.CompareOrdinal(a.meshName,b.meshName));
+            catalog.slices=slices.ToArray();EditorUtility.SetDirty(catalog);
         }
         static void SaveGeneratedAssets(GameObject root)
         {

@@ -51,7 +51,7 @@ namespace WaveLab
             Button(row,"RESTART",()=>target.ResetSimulation());
             Button(row,"0.5x / 1x",()=>target.playbackSpeed=target.playbackSpeed<.8f?1:.5f);
             timingLabel=Label(row,"",10,25);
-            scrub=Slider(content,0,1,0,value=>{target.paused=true;target.Seek(value*target.period);});
+            scrub=Slider(content,0,1,0,value=>target.RequestSeek(value*target.period));
             WaveLabConfigPanel.Create(transform,target);
         }
         void Update() => Refresh();
@@ -61,7 +61,7 @@ namespace WaveLab
             phaseLabel.text=SurfMath.PhaseName(target.Phase);
             timingLabel.text=$"{target.CycleProgress*target.period:0.0} / {target.period:0.0}s";
             pauseLabel.text=target.paused?"PLAY":"PAUSE";
-            if(!scrubbing) scrub.SetValueWithoutNotify(target.CycleProgress);
+            if(!scrubbing&&!target.IsSeeking) scrub.SetValueWithoutNotify(target.CycleProgress);
         }
         static RectTransform Rect(string name,Transform parent,Vector2 min,Vector2 max,Vector2 offsetMin,Vector2 offsetMax)
         {

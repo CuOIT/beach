@@ -1,0 +1,7 @@
+{
+    "name": "WaveLab.Editor",
+    "rootNamespace": "WaveLab.EditorTools",
+    "references": ["WaveLab.Runtime"],
+    "includePlatforms": ["Editor"],
+    "autoReferenced": true
+}

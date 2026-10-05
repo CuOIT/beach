@@ -71,6 +71,21 @@ The wave uses layered transparent quads and a procedural breaking-crest profile,
 
 The current scene prioritizes iteration and visual clarity. Profile transparent overdraw and procedural noise on target mobile hardware before production. Foam can be baked to tiled textures without changing the simulation contract. No additional rendering pipeline is installed or substituted.
 
+## Runtime creation and Android APK
+
+`Rebuild()` uses `Resources/WaveLab/ImmersionCatalog.asset`, which references the existing baked atlas, materials and foam quad. **Wave Lab > Upgrade Object Immersion** refreshes that catalog when artwork changes. Runtime creation performs no silhouette bake.
+
+Dragging supports mouse and touch. A drag retains its initiating finger and UI blocks new picks. The cycle scrubber coalesces requests, processes at most eight simulation steps or approximately three milliseconds per frame, and reuses half-second checkpoints. Physics tuning changes invalidate the cached trajectory. `Seek()` remains synchronous for captures and validation.
+
+With Unity **6000.6.0f1**, an activated Editor license and Android Build Support (including SDK, NDK and OpenJDK), run:
+
+```bash
+Unity -batchmode -nographics -projectPath "$PWD" -runTests -testPlatform EditMode -testFilter WaveLab.Tests -testResults /tmp/wavelab-tests.xml -logFile /tmp/wavelab-tests.log
+Unity -batchmode -nographics -quit -projectPath "$PWD" -buildTarget Android -executeMethod WaveLab.EditorTools.WaveLabBuild.BuildAndroid -waveLabOutput Build/WaveLab.apk -logFile /tmp/wavelab-build.log
+```
+
+`Unity` here is the actual Editor executable (use its absolute path if it is not on `PATH`). The build entry creates a debug-signed ARM64 APK that starts the WaveLab scene. It uses a separate application ID, `com.cuoit.wavelab`. Release signing is not configured by this entry point.
+
 ## Repeatable checks
 
 Run inside the project with the Unity Editor open and Pipeline connected:
@@ -85,4 +100,3 @@ unity command run_script --file AgentScripts/WaveLabActions.cs --entry WaveLabAc
 ```
 
 `VerifyImmersion` checks all 93 objects, all three states, foam gating, layer ordering, and shore-based depth. `VerifyShorewardMotion` checks three waves frame by frame: no offshore steps, no late-backwash drift, persistent forward progress, both lateral directions, gradual immersion, and invariant depth for stationary objects. In Play Mode, `WaveLabActions.VerifyRuntime` also checks controls, a single EventSystem, and six simulated wave cycles. `WaveLabActions.Record` captures a deterministic 20-second sequence under `Screenshots/WaveLab/Frames-refined`. The Editor menu **Wave Lab > Create or Open Wave Test** opens the scene. **Wave Lab > Upgrade Object Immersion** installs the state components on an older version of this scene using Unity APIs.
-

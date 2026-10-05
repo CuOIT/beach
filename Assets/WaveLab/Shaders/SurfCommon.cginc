@@ -21,7 +21,8 @@ float noise2(float2 p)
 }
 float fbm(float2 p) { return noise2(p)*.58+noise2(p*2.03+7.1)*.27+noise2(p*4.11+2.3)*.15; }
 float runup(float phase) { return ss(.26,.47,phase)*(1.-ss(.54,.96,phase)); }
-float shore(float x) { return -1.25+.23*sin(x*.85+.4)+.12*sin(x*2.3)+x*.045-_SurfReach*runup(_SurfPhase); }
+float restShore(float x) { return -1.25+.23*sin(x*.85+.4)+.12*sin(x*2.3)+x*.045; }
+float shore(float x) { return restShore(x)-_SurfReach*runup(_SurfPhase); }
 float crest() { return lerp(5.15,-1.72,saturate(_SurfPhase/.31)); }
 float signedWater(float2 p)
 {

@@ -39,6 +39,10 @@ namespace WaveLab
         {
             return Smooth(-.07f, .25f, p.y - Shore(p.x, phase, reach));
         }
+        public static float WetSandMemory(Vector2 p,float reach)
+        {
+            return Smooth(0,.05f,p.y-Shore(p.x,.5f,reach));
+        }
         // Object progression belongs to the beach layout, not the oscillating wave surface.
         public static float ObjectWaterDepth(Vector2 p,float slope)
         {
